@@ -30,3 +30,6 @@ for(i in 1:length(allFilesCsv)){
   
 }
 
+#mastertable before: 181694
+#sum of vecLen 193 826 310
+
