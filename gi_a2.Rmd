@@ -1,0 +1,155 @@
+---
+title: "BLASTN Analysis"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(UpSetR)
+library(Sushi)
+library(biomaRt)
+library(valr)
+
+url.prefix <- 'https://raw.githubusercontent.com/manzt/gi_a2/master/'
+species <- c('dgri', 'dmoj', 'dvir')
+
+cols <- c('qseqid', 'chrom', 'pident', 'length', 'mismatch', 'gapopen', 
+             'qstart', 'qend', 'start', 'end', 'evalue', 'bitscore')
+
+# aggregate blast results in dataframe
+raw_data <- list()
+for (s in species) {
+  url <- paste0(url.prefix, s, '_blastn.txt')
+  print(url)
+  raw_data[[s]] <- read.csv(url, col.names=cols) %>% mutate(species=s)
+}
+blastn <- bind_rows(raw_data)
+blastn
+```
+```{r}
+# total blast alignments for each species
+blastn %>% 
+  group_by(species) %>% 
+  tally()
+```
+```{r}
+# define e-value threshold and filter data
+thresh <- 0.01
+# thresh <- 0.01
+filtered <- blastn %>% filter(evalue < thresh)
+
+# total blast alignments for each species after thresh filter
+blastn %>% 
+  group_by(species) %>% 
+  tally()
+```
+
+```{r}
+# count transcripts found from Dmel 
+found_genes <- blastn %>%
+  group_by(species, qseqid) %>%
+  summarise()
+
+# number of Dmel genes in each
+found_genes %>% tally()
+```
+```{r}
+# plot Intersection
+by_species <- lapply(species, function(s) found_genes$qseqid[found_genes$species == s])
+names(by_species) <- species
+upset(fromList(by_species), order.by='freq')
+```
+
+```{r}
+# Helper function - returns subsets used for upset plot
+# get overlapping subsets from upsetR plots
+# https://github.com/hms-dbmi/UpSetR/issues/85#issuecomment-415480954
+overlapGroups <- function (listInput, sort = TRUE) {
+  listInputmat    <- fromList(listInput) == 1
+  listInputunique <- unique(listInputmat)
+  grouplist <- list()
+  # going through all unique combinations and collect elements for each in a list
+  for (i in 1:nrow(listInputunique)) {
+    currentRow <- listInputunique[i,]
+    myelements <- which(apply(listInputmat,1,function(x) all(x == currentRow)))
+    attr(myelements, "groups") <- currentRow
+    grouplist[[paste(colnames(listInputunique)[currentRow], collapse = ":")]] <- myelements
+    myelements
+  }
+  if (sort) {
+    grouplist <- grouplist[order(sapply(grouplist, function(x) length(x)), decreasing = TRUE)]
+  }
+  attr(grouplist, "elements") <- unique(unlist(listInput))
+  return(grouplist)
+  # save element list to facilitate access using an index in case rownames are not named
+}
+```
+
+```{r} 
+# create table of molecular function GO-ids 
+gene_ontology <- tibble(
+  go_id=c('GO:0005215', 'GO:0045182', 'GO:0003824', 'GO:0016247', 'GO:0004872', 
+    'GO:0004871', 'GO:0016209', 'GO:0005198', 'GO:0005488'),
+  description=c('transporter activity', 'translation regulator activity', 
+    'catalytic activity', 'channel regulator activity', 
+    'receptor activity', 'signal transducer activity', 
+    'antioxidant activity', 'structural molecule activity', 'binding')
+)
+gene_ontology
+```
+
+```{r }
+# initialize biomaRt to query go_ids
+ensembl <- useMart(biomart="ENSEMBL_MART_ENSEMBL", 
+                   dataset="dmelanogaster_gene_ensembl", 
+                   host="www.ensembl.org")
+```
+
+```{r }
+# Query ensembl for go_ids and refine to molecular function ids for each set
+sets <- overlapGroups(by_species)
+data_list <- list()
+for (i in 1:length(sets)) {
+  transcript_ids <- attr(sets, 'elements')[sets[[i]]]
+  data_list[[i]] <- getBM(attributes = c('ensembl_gene_id', 'go_id', 'namespace_1003'),
+                     filters='ensembl_transcript_id',
+                     values=transcript_ids, mart=ensembl) %>% 
+    filter(go_id %in% gene_ontology$go_id) %>% 
+    mutate(set=names(sets[i]))
+}
+set_ids <-  bind_rows(data_list) %>% left_join(gene_ontology, by='go_id') 
+set_ids
+```
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+ggplot(set_ids, aes(x=set, fill=description)) + 
+  geom_bar(position="fill", width = 0.5) + 
+  scale_x_discrete(limits=names(sets)) + 
+  scale_fill_manual(values=cbPalette) + theme_classic() + 
+  theme(legend.position="bottom") + 
+  labs(x='', y='', fill='')
+```
+
+```{r sushi attempt}
+chrom = 'scaffold_15110'
+chromstart = 0
+chromend = 24565398 - 20000000
+blastn %>%
+  filter(chrom == chrom) %>%
+  filter(start < chromend) %>%
+  ggplot(aes(x=start, width=length, y=species)) + geom_tile()
+
+
+# merge together nearby alignments
+allowed_spacing <- 1.5e6
+bed_cluster(blastn %>% group_by(qseqid, chrom), max_dist=allowed_spacing) %>% 
+  filter(qseqid == 'FBtr0334137' & chrom == 'scaffold_15126') %>%
+  View()
+
+x <- bed_merge(blastn %>% filter(evalue < 1E-50) %>% group_by(qseqid, chrom, species), max_dist=allowed_spacing)
+x
+```
