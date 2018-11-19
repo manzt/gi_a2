@@ -186,7 +186,7 @@ tblastn %>%
 ```
 
 ```{r }
-thresh.t <- 350
+thresh.t <- 300
 tblast.filtered <- tblastn %>%
   filter(bitscore > thresh.t)
 
@@ -207,7 +207,11 @@ found_peps %>% tally()
 # plot Intersection
 pep.by_species <- lapply(species, function(s) found_peps$qseqid[found_peps$species == s])
 names(pep.by_species) <- species
+pdf('upset-tblastn.pdf', width=7, height=5)
 upset(fromList(pep.by_species), order.by='freq')
+dev.off()
+upset(fromList(pep.by_species), order.by='freq')
+
 ```
 
 
@@ -216,9 +220,9 @@ upset(fromList(pep.by_species), order.by='freq')
 pep.sets <- overlapGroups(pep.by_species)
 data_list <- list()
 for (i in 1:length(pep.sets)) {
-  gene_ids <- attr(sets, 'elements')[pep.sets[[i]]]
+  gene_ids <- attr(pep.sets, 'elements')[pep.sets[[i]]]
   data_list[[i]] <- getBM(attributes = c('ensembl_gene_id', 'go_id', 'namespace_1003'),
-                     filters='flybase_transcript_id',
+                     filters='flybase_translation_id',
                      values=gene_ids, mart=ensembl) %>% 
     filter(go_id %in% bio_process$go_id) %>% 
     mutate(set=names(pep.sets[i]))
@@ -234,6 +238,11 @@ ggplot(pep.set_ids, aes(x=set, fill=description)) +
   theme_classic() + 
   theme(legend.position="bottom") + 
   labs(x='', y='', fill='')
+```
+
+### Compare to Model
+```{r}
+
 ```
 
 
