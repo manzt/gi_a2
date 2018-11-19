@@ -9,11 +9,9 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 library(ggplot2)
 library(dplyr)
 library(UpSetR)
-library(Sushi)
 library(biomaRt)
-library(valr)
 
-url.prefix <- 'https://raw.githubusercontent.com/manzt/gi_a2/master/'
+url.prefix <- 'https://raw.githubusercontent.com/manzt/gi_a2/master/blastn-results/'
 species <- c('dgri', 'dmoj', 'dvir')
 
 cols <- c('qseqid', 'chrom', 'pident', 'length', 'mismatch', 'gapopen', 
@@ -23,7 +21,7 @@ cols <- c('qseqid', 'chrom', 'pident', 'length', 'mismatch', 'gapopen',
 raw_data <- list()
 for (s in species) {
   url <- paste0(url.prefix, s, '_blastn.txt')
-  print(url)
+  print(paste('Fetching', s, 'data from:', url))
   raw_data[[s]] <- read.csv(url, col.names=cols) %>% mutate(species=s)
 }
 blastn <- bind_rows(raw_data)
@@ -37,19 +35,19 @@ blastn %>%
 ```
 ```{r}
 # define e-value threshold and filter data
-thresh <- 0.01
+thresh <- 0.1
 # thresh <- 0.01
 filtered <- blastn %>% filter(evalue < thresh)
 
 # total blast alignments for each species after thresh filter
-blastn %>% 
+filtered %>% 
   group_by(species) %>% 
   tally()
 ```
 
 ```{r}
 # count transcripts found from Dmel 
-found_genes <- blastn %>%
+found_genes <- filtered %>%
   group_by(species, qseqid) %>%
   summarise()
 
@@ -123,6 +121,7 @@ for (i in 1:length(sets)) {
 set_ids <-  bind_rows(data_list) %>% left_join(gene_ontology, by='go_id') 
 set_ids
 ```
+
 ```{r}
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
@@ -135,6 +134,9 @@ ggplot(set_ids, aes(x=set, fill=description)) +
 ```
 
 ```{r sushi attempt}
+# library(Sushi)
+# library(valr)
+
 chrom = 'scaffold_15110'
 chromstart = 0
 chromend = 24565398 - 20000000
