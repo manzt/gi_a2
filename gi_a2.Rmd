@@ -1,10 +1,10 @@
 ---
-title: "BLASTN Analysis"
+title: "BLAST Analysis"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
+### BLASTN
+Align Dmel cDNA to species genome
 ```{r}
 library(ggplot2)
 library(dplyr)
@@ -35,9 +35,8 @@ blastn %>%
 ```
 ```{r}
 # define e-value threshold and filter data
-thresh <- 0.1
-# thresh <- 0.01
-filtered <- blastn %>% filter(evalue < thresh)
+thresh <- 150
+filtered <- blastn %>% filter(bitscore > thresh)
 
 # total blast alignments for each species after thresh filter
 filtered %>% 
@@ -56,9 +55,9 @@ found_genes %>% tally()
 ```
 ```{r}
 # plot Intersection
-by_species <- lapply(species, function(s) found_genes$qseqid[found_genes$species == s])
-names(by_species) <- species
-upset(fromList(by_species), order.by='freq')
+cdna.by_species <- lapply(species, function(s) found_genes$qseqid[found_genes$species == s])
+names(cdna.by_species) <- species
+upset(fromList(cdna.by_species), order.by='freq')
 ```
 
 ```{r}
@@ -98,6 +97,20 @@ gene_ontology <- tibble(
 )
 gene_ontology
 ```
+```{r} 
+bio_process <- tibble(
+  go_id=c('GO:0071840', 'GO:0009987', 'GO:0051179', 'GO:0000003',
+    'GO:0065007', 'GO:0050896', 'GO:0032502', 'GO:0048511', 
+    'GO:0032501', 'GO:0008152', 'GO:0040007'),
+  description=c('cellular component organization or biogenesis',
+    'cellular process', 'localization', 'reproduction', 
+    'biological regulation', 'response to stimulus',
+    'developmental process', 'rhythmic process', 
+    'multicellular organismal process', 
+    'metabolic process', 'growth')
+)
+bio_process
+```
 
 ```{r }
 # initialize biomaRt to query go_ids
@@ -108,30 +121,122 @@ ensembl <- useMart(biomart="ENSEMBL_MART_ENSEMBL",
 
 ```{r }
 # Query ensembl for go_ids and refine to molecular function ids for each set
-sets <- overlapGroups(by_species)
+sets <- overlapGroups(cdna.by_species)
 data_list <- list()
 for (i in 1:length(sets)) {
   transcript_ids <- attr(sets, 'elements')[sets[[i]]]
   data_list[[i]] <- getBM(attributes = c('ensembl_gene_id', 'go_id', 'namespace_1003'),
                      filters='ensembl_transcript_id',
                      values=transcript_ids, mart=ensembl) %>% 
-    filter(go_id %in% gene_ontology$go_id) %>% 
+    filter(go_id %in% bio_process$go_id) %>% 
     mutate(set=names(sets[i]))
 }
-set_ids <-  bind_rows(data_list) %>% left_join(gene_ontology, by='go_id') 
+set_ids <-  bind_rows(data_list) %>% left_join(bio_process, by='go_id') 
 set_ids
 ```
 
 ```{r}
-cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
-
 ggplot(set_ids, aes(x=set, fill=description)) + 
-  geom_bar(position="fill", width = 0.5) + 
+  geom_bar(width = 0.5, color='black') + 
   scale_x_discrete(limits=names(sets)) + 
-  scale_fill_manual(values=cbPalette) + theme_classic() + 
+  theme_classic() + 
   theme(legend.position="bottom") + 
   labs(x='', y='', fill='')
 ```
+
+```{r} 
+set_ids %>% group_by(set) %>% count()
+```
+
+### TBLASTN
+Align Dmel pepdies to species genome
+```{r}
+paths <- c('/mhome/maths/q/tjm74/gi/assignment_2/dgri_tblastn.txt',
+           '/mhome/maths/t/ldk26/private/GenomeInformatics/D.mojavensis/result_tblastn2.out',
+           '/mhome/maths/s/as2841/GIA2/dvri_tblastn.txt')
+
+species <- c('dgri', 'dmoj', 'dvir')
+
+dgri.cols <- c('qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 
+          'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore')
+
+dmoj.cols <- c('qseqid', 'sseqid', 'pident', 'length', 'qstart', 
+               'sstart', 'send', 'evalue', 'bitscore')
+
+dvir.cols <- c('qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 
+              'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore')
+
+cols <- list(dgri.cols, dmoj.cols, dvir.cols)
+
+raw_data <- list()
+for (i in 1:3) {
+  print(paths[i])
+  raw_data[[species[i]]] <- read.csv(paths[i], col.names=cols[[i]]) %>% mutate(species=species[i])
+  head(raw_data[[species[i]]])
+}
+tblastn <- bind_rows(raw_data)
+tblastn
+```
+
+```{r }
+# total blast alignments for each species
+tblastn %>% 
+  group_by(species) %>% 
+  tally()
+```
+
+```{r }
+thresh.t <- 350
+tblast.filtered <- tblastn %>%
+  filter(bitscore > thresh.t)
+
+tblast.filtered %>% group_by(species) %>% count()
+```
+
+```{r}
+# count proteins found from Dmel 
+found_peps <- tblast.filtered %>%
+  group_by(species, qseqid) %>%
+  summarise()
+
+# number of Dmel genes in each
+found_peps %>% tally()
+```
+
+```{r}
+# plot Intersection
+pep.by_species <- lapply(species, function(s) found_peps$qseqid[found_peps$species == s])
+names(pep.by_species) <- species
+upset(fromList(pep.by_species), order.by='freq')
+```
+
+
+```{r }
+# Query ensembl for go_ids and refine to molecular function ids for each set
+pep.sets <- overlapGroups(pep.by_species)
+data_list <- list()
+for (i in 1:length(pep.sets)) {
+  gene_ids <- attr(sets, 'elements')[pep.sets[[i]]]
+  data_list[[i]] <- getBM(attributes = c('ensembl_gene_id', 'go_id', 'namespace_1003'),
+                     filters='flybase_transcript_id',
+                     values=gene_ids, mart=ensembl) %>% 
+    filter(go_id %in% bio_process$go_id) %>% 
+    mutate(set=names(pep.sets[i]))
+}
+pep.set_ids <-  bind_rows(data_list) %>% left_join(bio_process, by='go_id') 
+pep.set_ids
+```
+
+```{r}
+ggplot(pep.set_ids, aes(x=set, fill=description)) + 
+  geom_bar(width = 0.5, color='black') + 
+  scale_x_discrete(limits=names(sets)) + 
+  theme_classic() + 
+  theme(legend.position="bottom") + 
+  labs(x='', y='', fill='')
+```
+
+
 
 ```{r sushi attempt}
 # library(Sushi)
